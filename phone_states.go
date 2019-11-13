@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/stevenferrer/stateless"
+	"github.com/qmuntal/stateless"
 )
 
 type ctxKey int
