@@ -133,7 +133,7 @@ func newStateMutator(stateAccessor StateAccessor, logrepo *LogRepository) StateM
 		// new state
 		next, ok := nextState.(state)
 		if !ok {
-			return fmt.Errorf("new state is invalid: %v", next)
+			return fmt.Errorf("next state invalid type: %T", nextState)
 		}
 
 		currentState, err := stateAccessor(ctx)
@@ -144,7 +144,7 @@ func newStateMutator(stateAccessor StateAccessor, logrepo *LogRepository) StateM
 		// current state
 		current, ok := currentState.(state)
 		if !ok {
-			return fmt.Errorf("current state invalid %v", currentState)
+			return fmt.Errorf("current state invalid type %T", currentState)
 		}
 
 		// ignore if it's the same state

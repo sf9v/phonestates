@@ -14,70 +14,71 @@ func main() {
 
 	phoneStates := NewPhoneStates()
 
-	phones := []Phone{{ID: 1}, {ID: 2}, {ID: 3}}
+	phones := []Phone{
+		{ID: 1, Name: "Alice"},
+		{ID: 2, Name: "John"},
+		{ID: 3, Name: "Bob"},
+	}
 
-	names := []string{"Alice", "John", "Bo"}
-
-	for index, phone := range phones {
-		err = phoneStates.TriggerCallDialed(ctx, phone.ID, names[index])
+	for _, p := range phones {
+		err = phoneStates.TriggerCallDialed(ctx, p.ID, p.Name)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerCallConnected(ctx, phone.ID)
+	for _, p := range phones {
+		err = phoneStates.TriggerCallConnected(ctx, p.ID)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerSetVolume(ctx, phone.ID, 2)
+	for _, p := range phones {
+		err = phoneStates.TriggerSetVolume(ctx, p.ID, 2)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerPlaceOnHold(ctx, phone.ID)
+	for _, p := range phones {
+		err = phoneStates.TriggerPlaceOnHold(ctx, p.ID)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerMuteMicrophone(ctx, phone.ID)
+	for _, p := range phones {
+		err = phoneStates.TriggerMuteMicrophone(ctx, p.ID)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerUnmuteMicrophone(ctx, phone.ID)
+	for _, p := range phones {
+		err = phoneStates.TriggerUnmuteMicrophone(ctx, p.ID)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerTakenOffHold(ctx, phone.ID)
+	for _, p := range phones {
+		err = phoneStates.TriggerTakenOffHold(ctx, p.ID)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerSetVolume(ctx, phone.ID, 11)
+	for _, p := range phones {
+		err = phoneStates.TriggerSetVolume(ctx, p.ID, 11)
 		checkErr(err)
 
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerPlaceOnHold(ctx, phone.ID)
+	for _, p := range phones {
+		err = phoneStates.TriggerPlaceOnHold(ctx, p.ID)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		err = phoneStates.TriggerPhoneHurledAgainstWall(ctx, phone.ID)
+	for _, p := range phones {
+		err = phoneStates.TriggerPhoneHurledAgainstWall(ctx, p.ID)
 		checkErr(err)
 	}
 
-	for _, phone := range phones {
-		logs := phoneStates.GetPhoneLogs(phone)
+	for _, p := range phones {
+		logs := phoneStates.GetPhoneLogs(p)
+		fmt.Printf("%s's phone logs\n", p.Name)
 		for _, log := range logs {
-			fmt.Printf("PhoneID: %d, Log ID: %d, Remarks: %s\n", log.PhoneID, log.ID, log.Remarks)
+			fmt.Printf("Log ID: %d, Remarks: %s\n", log.ID, log.Remarks)
 		}
 		fmt.Println()
 	}
-
-	fmt.Println(phoneStates.sm.ToGraph())
 }
 
 func checkErr(err error) {
