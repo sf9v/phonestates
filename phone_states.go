@@ -16,125 +16,72 @@ const (
 	ctxKeyPhoneID ctxKey = iota
 )
 
+func ctxWithPhoneID(ctx context.Context, phoneID PhoneID) context.Context {
+	return context.WithValue(ctx, ctxKeyPhoneID, phoneID)
+}
+
+func phoneIDFromCtx(ctx context.Context) (PhoneID, bool) {
+	phoneID, ok := ctx.Value(ctxKeyPhoneID).(PhoneID)
+	return phoneID, ok
+}
+
+type trigger string
+
 const (
-	triggerCallDialed             = "CallDialed"
-	triggerCallConnected          = "CallConnected"
-	triggerLeftMessage            = "LeftMessage"
-	triggerPlacedOnHold           = "PlacedOnHold"
-	triggerTakenOffHold           = "TakenOffHold"
-	triggerPhoneHurledAgainstWall = "PhoneHurledAgainstWall"
-	triggerMuteMicrophone         = "MuteMicrophone"
-	triggerUnmuteMicrophone       = "UnmuteMicrophone"
-	triggerSetVolume              = "SetVolume"
+	triggerCallDialed             trigger = "CallDialed"
+	triggerCallConnected          trigger = "CallConnected"
+	triggerLeftMessage            trigger = "LeftMessage"
+	triggerPlacedOnHold           trigger = "PlacedOnHold"
+	triggerTakenOffHold           trigger = "TakenOffHold"
+	triggerPhoneHurledAgainstWall trigger = "PhoneHurledAgainstWall"
+	triggerMuteMicrophone         trigger = "MuteMicrophone"
+	triggerUnmuteMicrophone       trigger = "UnmuteMicrophone"
+	triggerSetVolume              trigger = "SetVolume"
 )
 
+type state string
+
 const (
-	stateOffHook        = "OffHook"
-	stateRinging        = "Ringing"
-	stateConnected      = "Connected"
-	stateOnHold         = "OnHold"
-	statePhoneDestroyed = "PhoneDestroyed"
+	stateOffHook        state = "OffHook"
+	stateRinging        state = "Ringing"
+	stateConnected      state = "Connected"
+	stateOnHold         state = "OnHold"
+	statePhoneDestroyed state = "PhoneDestroyed"
 )
 
-// Phone is a phone
-type Phone struct {
-	ID int
-}
-
-// PhoneLog contains the information about the state transition of a phone
-type PhoneLog struct {
-	ID      int
-	PhoneID int
-	From    string
-	To      string
-	Remarks string
-}
-
-// PhoneLogs are phone logs
-type PhoneLogs map[int][]PhoneLog
-
-// GetLastOrInsert gets the last log for the phone or inserts if no log is found
-func (pl PhoneLogs) GetLastOrInsert(phoneID int, initialState string) PhoneLog {
-	logs, ok := pl[phoneID]
-	if !ok {
-		// insert
-		pl[phoneID] = []PhoneLog{
-			{
-				ID:      1,
-				PhoneID: phoneID,
-				From:    "",
-				To:      initialState,
-				Remarks: "Initial state",
-			},
-		}
-
-		return pl[phoneID][0]
-	}
-
-	return logs[len(logs)-1]
-}
-
-// GetPhoneLogs gives you all the logs for the phone
-func (pl PhoneLogs) GetPhoneLogs(phoneID int) []PhoneLog {
-	return pl[phoneID]
-}
-
-// InsertPhoneLog inserts a log for the phone
-func (pl PhoneLogs) InsertPhoneLog(phoneID int, from, to string) error {
-	logs, ok := pl[phoneID]
-	if !ok {
-		pl[phoneID] = []PhoneLog{}
-	}
-
-	log := PhoneLog{
-		ID:      len(logs) + 1,
-		PhoneID: phoneID,
-		From:    from,
-		To:      to,
-		Remarks: fmt.Sprintf("from %q to %q state", from, to),
-	}
-
-	pl[phoneID] = append(logs, log)
-
-	return nil
-}
+type StateAccessor func(context.Context) (interface{}, error)
+type StateMutator func(context.Context, interface{}) error
 
 // PhoneStates holds the phone states
 type PhoneStates struct {
-	stateMachine *stateless.StateMachine
-	phoneLogs    PhoneLogs
+	sm      *stateless.StateMachine
+	logRepo *LogRepository
 }
 
 // NewPhoneStates is a factory for PhoneStates
 func NewPhoneStates() *PhoneStates {
-	phoneStates := &PhoneStates{
-		phoneLogs: map[int][]PhoneLog{},
-	}
+	logRepo := newLogRepo()
+	stateAccessor := newStateAccessor(logRepo)
+	stateMutator := newStateMutator(stateAccessor, logRepo)
 
-	stateMachine := stateless.NewStateMachineWithExternalStorage(
-		func(ctx context.Context) (interface{}, error) {
-			return stateAccessor(ctx, phoneStates)
-		},
-		func(ctx context.Context, newState interface{}) error {
-			return stateMutator(ctx, phoneStates, newState)
-		},
-		stateless.FiringQueued,
+	sm := stateless.NewStateMachineWithExternalStorage(
+		stateAccessor, stateMutator, stateless.FiringQueued,
 	)
 
-	stateMachine.SetTriggerParameters(triggerSetVolume, reflect.TypeOf(0))
-	stateMachine.SetTriggerParameters(triggerCallDialed, reflect.TypeOf(""))
+	sm.SetTriggerParameters(triggerSetVolume, reflect.TypeOf(0))
+	sm.SetTriggerParameters(triggerCallDialed, reflect.TypeOf(""))
 
-	stateMachine.Configure(stateOffHook).
+	sm.Configure(stateOffHook).
 		Permit(triggerCallDialed, stateRinging)
 
-	stateMachine.Configure(stateRinging).
+	sm.Configure(stateRinging).
 		OnEntryFrom(triggerCallDialed, func(_ context.Context, args ...interface{}) error {
 			onDialed(args[0].(string))
 			return nil
 		}).
 		Permit(triggerCallConnected, stateConnected)
 
-	stateMachine.Configure(stateConnected).
+	sm.Configure(stateConnected).
 		OnEntry(startCallTimer).
 		OnExit(func(_ context.Context, _ ...interface{}) error {
 			stopCallTimer()
@@ -155,120 +102,113 @@ func NewPhoneStates() *PhoneStates {
 		Permit(triggerLeftMessage, stateOffHook).
 		Permit(triggerPlacedOnHold, stateOnHold)
 
-	stateMachine.Configure(stateOnHold).
+	sm.Configure(stateOnHold).
 		SubstateOf(stateConnected).
 		Permit(triggerTakenOffHold, stateConnected).
 		Permit(triggerPhoneHurledAgainstWall, statePhoneDestroyed)
 
-	stateMachine.Configure(statePhoneDestroyed).
+	sm.Configure(statePhoneDestroyed).
 		OnEntry(func(_ context.Context, _ ...interface{}) error {
 			fmt.Println("phone wrecked!")
 			return nil
 		})
 
-	phoneStates.stateMachine = stateMachine
-
-	return phoneStates
+	return &PhoneStates{sm: sm, logRepo: logRepo}
 }
 
-func stateAccessor(ctx context.Context, phoneStates *PhoneStates) (currentState interface{}, err error) {
-	phoneID, ok := ctx.Value(ctxKeyPhoneID).(int)
-	if !ok {
-		return nil, errors.New("invalid primary keys, perhaps you have forgotten to pass phone ID on context?")
+func newStateAccessor(logRepo *LogRepository) StateAccessor {
+	return func(ctx context.Context) (interface{}, error) {
+		phoneID, ok := phoneIDFromCtx(ctx)
+		if !ok {
+			return nil, errors.New("phone ID not in context")
+		}
+
+		last := logRepo.GetLastOrInsert(phoneID, stateOffHook)
+		return last.To, nil
 	}
-
-	last := phoneStates.phoneLogs.GetLastOrInsert(phoneID, stateOffHook)
-
-	return last.To, nil
 }
 
-func stateMutator(ctx context.Context, phoneStates *PhoneStates, ns interface{}) error {
-	// new state
-	newState, ok := ns.(string)
-	if !ok {
-		return fmt.Errorf("new state is invalid: %v", newState)
-	}
+func newStateMutator(stateAccessor StateAccessor, logrepo *LogRepository) StateMutator {
+	return func(ctx context.Context, nextState interface{}) error {
+		// new state
+		next, ok := nextState.(state)
+		if !ok {
+			return fmt.Errorf("new state is invalid: %v", next)
+		}
 
-	cs, err := phoneStates.stateMachine.State(ctx)
-	if err != nil {
-		return err
-	}
+		currentState, err := stateAccessor(ctx)
+		if err != nil {
+			return err
+		}
 
-	// current state
-	currentState, ok := cs.(string)
-	if !ok {
-		return fmt.Errorf("current state is invalid %v", cs)
-	}
+		// current state
+		current, ok := currentState.(state)
+		if !ok {
+			return fmt.Errorf("current state invalid %v", currentState)
+		}
 
-	// ignore if it's the same state
-	if newState == currentState {
+		// ignore if it's the same state
+		if next == currentState {
+			return nil
+		}
+
+		phoneID, ok := phoneIDFromCtx(ctx)
+		if !ok {
+			return errors.New("phone ID not in context")
+		}
+
+		err = logrepo.InsertPhoneLog(phoneID, current, next)
+		if err != nil {
+			return errors.Wrap(err, "error saving state")
+		}
+
 		return nil
 	}
-
-	phoneID, ok := ctx.Value(ctxKeyPhoneID).(int)
-	if !ok {
-		return errors.New("invalid primary keys, perhaps you have forgotten to pass phone ID on context?")
-	}
-
-	err = phoneStates.phoneLogs.InsertPhoneLog(phoneID, currentState, newState)
-	if err != nil {
-		return errors.Wrap(err, "error saving state")
-	}
-
-	return nil
 }
 
 // GetPhoneLogs ...
-func (ps *PhoneStates) GetPhoneLogs(phone Phone) []PhoneLog {
-	return ps.phoneLogs.GetPhoneLogs(phone.ID)
+func (ps *PhoneStates) GetPhoneLogs(phone Phone) []Log {
+	return ps.logRepo.GetPhoneLogs(phone.ID)
 }
 
 // TriggerCallDialed ...
-func (ps *PhoneStates) TriggerCallDialed(ctx context.Context, phone Phone, callee string) error {
-	ctx = context.WithValue(ctx, ctxKeyPhoneID, phone.ID)
-	return ps.stateMachine.FireCtx(ctx, triggerCallDialed, callee)
+func (ps *PhoneStates) TriggerCallDialed(ctx context.Context, phoneID PhoneID, callee string) error {
+	return ps.sm.FireCtx(ctxWithPhoneID(ctx, phoneID), triggerCallDialed, callee)
 }
 
 // TriggerCallConnected ...
-func (ps *PhoneStates) TriggerCallConnected(ctx context.Context, phone Phone) error {
-	ctx = context.WithValue(ctx, ctxKeyPhoneID, phone.ID)
-	return ps.stateMachine.FireCtx(ctx, triggerCallConnected)
+func (ps *PhoneStates) TriggerCallConnected(ctx context.Context, phoneID PhoneID) error {
+	return ps.sm.FireCtx(ctxWithPhoneID(ctx, phoneID), triggerCallConnected)
 }
 
 // TriggerSetVolume ...
-func (ps *PhoneStates) TriggerSetVolume(ctx context.Context, phone Phone, volume int) error {
-	ctx = context.WithValue(ctx, ctxKeyPhoneID, phone.ID)
-	return ps.stateMachine.FireCtx(ctx, triggerSetVolume, volume)
+func (ps *PhoneStates) TriggerSetVolume(ctx context.Context, phoneID PhoneID, volume int) error {
+	return ps.sm.FireCtx(ctxWithPhoneID(ctx, phoneID), triggerSetVolume, volume)
 }
 
 // TriggerPlaceOnHold ...
-func (ps *PhoneStates) TriggerPlaceOnHold(ctx context.Context, phone Phone) error {
-	ctx = context.WithValue(ctx, ctxKeyPhoneID, phone.ID)
-	return ps.stateMachine.FireCtx(ctx, triggerPlacedOnHold)
+func (ps *PhoneStates) TriggerPlaceOnHold(ctx context.Context, phoneID PhoneID) error {
+	return ps.sm.FireCtx(ctxWithPhoneID(ctx, phoneID), triggerPlacedOnHold)
 }
 
 // TriggerMuteMicrophone ...
-func (ps *PhoneStates) TriggerMuteMicrophone(ctx context.Context, phone Phone) error {
-	ctx = context.WithValue(ctx, ctxKeyPhoneID, phone.ID)
-	return ps.stateMachine.FireCtx(ctx, triggerMuteMicrophone)
+func (ps *PhoneStates) TriggerMuteMicrophone(ctx context.Context, phoneID PhoneID) error {
+	return ps.sm.FireCtx(ctxWithPhoneID(ctx, phoneID), triggerMuteMicrophone)
 }
 
 // TriggerUnmuteMicrophone ...
-func (ps *PhoneStates) TriggerUnmuteMicrophone(ctx context.Context, phone Phone) error {
-	ctx = context.WithValue(ctx, ctxKeyPhoneID, phone.ID)
-	return ps.stateMachine.FireCtx(ctx, triggerUnmuteMicrophone)
+func (ps *PhoneStates) TriggerUnmuteMicrophone(ctx context.Context, phoneID PhoneID) error {
+	return ps.sm.FireCtx(ctxWithPhoneID(ctx, phoneID), triggerUnmuteMicrophone)
 }
 
 // TriggerTakenOffHold ...
-func (ps *PhoneStates) TriggerTakenOffHold(ctx context.Context, phone Phone) error {
-	ctx = context.WithValue(ctx, ctxKeyPhoneID, phone.ID)
-	return ps.stateMachine.FireCtx(ctx, triggerTakenOffHold)
+func (ps *PhoneStates) TriggerTakenOffHold(ctx context.Context, phoneID PhoneID) error {
+	return ps.sm.FireCtx(ctxWithPhoneID(ctx, phoneID), triggerTakenOffHold)
 }
 
 // TriggerPhoneHurledAgainstWall ...
-func (ps *PhoneStates) TriggerPhoneHurledAgainstWall(ctx context.Context, phone Phone) error {
-	ctx = context.WithValue(ctx, ctxKeyPhoneID, phone.ID)
-	return ps.stateMachine.FireCtx(ctx, triggerPhoneHurledAgainstWall)
+func (ps *PhoneStates) TriggerPhoneHurledAgainstWall(ctx context.Context, phoneID PhoneID) error {
+	return ps.sm.FireCtx(ctxWithPhoneID(ctx, phoneID), triggerPhoneHurledAgainstWall)
 }
 
 func onSetVolume(volume int) {

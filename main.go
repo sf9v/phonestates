@@ -6,12 +6,6 @@ import (
 	"log"
 )
 
-func checkErr(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
 func main() {
 	var (
 		err error
@@ -20,62 +14,58 @@ func main() {
 
 	phoneStates := NewPhoneStates()
 
-	phones := []Phone{
-		{ID: 1},
-		{ID: 2},
-		{ID: 3},
-	}
+	phones := []Phone{{ID: 1}, {ID: 2}, {ID: 3}}
 
-	names := []string{"Stamp", "Ricka", "Marie"}
+	names := []string{"Alice", "John", "Bo"}
 
 	for index, phone := range phones {
-		err = phoneStates.TriggerCallDialed(ctx, phone, names[index])
+		err = phoneStates.TriggerCallDialed(ctx, phone.ID, names[index])
 		checkErr(err)
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerCallConnected(ctx, phone)
+		err = phoneStates.TriggerCallConnected(ctx, phone.ID)
 		checkErr(err)
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerSetVolume(ctx, phone, 2)
+		err = phoneStates.TriggerSetVolume(ctx, phone.ID, 2)
 		checkErr(err)
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerPlaceOnHold(ctx, phone)
+		err = phoneStates.TriggerPlaceOnHold(ctx, phone.ID)
 		checkErr(err)
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerMuteMicrophone(ctx, phone)
+		err = phoneStates.TriggerMuteMicrophone(ctx, phone.ID)
 		checkErr(err)
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerUnmuteMicrophone(ctx, phone)
+		err = phoneStates.TriggerUnmuteMicrophone(ctx, phone.ID)
 		checkErr(err)
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerTakenOffHold(ctx, phone)
+		err = phoneStates.TriggerTakenOffHold(ctx, phone.ID)
 		checkErr(err)
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerSetVolume(ctx, phone, 11)
+		err = phoneStates.TriggerSetVolume(ctx, phone.ID, 11)
 		checkErr(err)
 
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerPlaceOnHold(ctx, phone)
+		err = phoneStates.TriggerPlaceOnHold(ctx, phone.ID)
 		checkErr(err)
 	}
 
 	for _, phone := range phones {
-		err = phoneStates.TriggerPhoneHurledAgainstWall(ctx, phone)
+		err = phoneStates.TriggerPhoneHurledAgainstWall(ctx, phone.ID)
 		checkErr(err)
 	}
 
@@ -85,5 +75,13 @@ func main() {
 			fmt.Printf("PhoneID: %d, Log ID: %d, Remarks: %s\n", log.PhoneID, log.ID, log.Remarks)
 		}
 		fmt.Println()
+	}
+
+	fmt.Println(phoneStates.sm.ToGraph())
+}
+
+func checkErr(err error) {
+	if err != nil {
+		log.Fatal(err)
 	}
 }
